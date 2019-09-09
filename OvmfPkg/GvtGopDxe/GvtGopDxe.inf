@@ -1,0 +1,42 @@
+## @file
+# Intel GVT-g GOP driver
+#
+# Copyright (C) 2019 Intel Corporation. All rights reserved.
+#
+# SPDX-License-Identifier: BSD-2-Clause
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = GvtGopDxe
+  FILE_GUID                      = 2a202dae-364e-4c93-b132-aeab857ebcd4
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = GvtGopEntryPoint
+
+[Sources]
+  GopDriver.c
+  Gop.c
+  Gop.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  OvmfPkg/OvmfPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  FrameBufferBltLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid
+  gEfiPciIoProtocolGuid
+  gEfiDevicePathProtocolGuid
