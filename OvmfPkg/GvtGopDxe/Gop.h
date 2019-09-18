@@ -24,6 +24,9 @@
 #define VGT_CAPS_GOP_SUPPORT    (1 << 5)
 #define VGT_MAGIC               0x4776544776544776ULL /* 'vGTvGTvG' */
 #define VGT_IF_BASE             0x78000
+#define VGT_G2V_OFFSET          0x818
+#define VGT_GOP_OFFSET          0x86C
+#define VGT_G2V_GOP_SETUP       0xd
 
 /* GVT_IF_HDR is part of vgt_if in gvt linux kernel driver */
 
@@ -35,6 +38,14 @@ typedef struct {
   UINT32        VgtCaps;        /* VGT capabilities */
 } GVT_IF_HDR;
 
+typedef struct {
+  UINT32        FbBase;
+  UINT32        Width;
+  UINT32        Height;
+  UINT32        Pitch;
+  UINT32        Bpp;
+  UINT32        Size;
+} GVT_GOP_INFO;
 
 typedef struct {
   EFI_HANDLE                    Handle;
@@ -42,11 +53,13 @@ typedef struct {
   EFI_GRAPHICS_OUTPUT_PROTOCOL  Gop;
   FRAME_BUFFER_CONFIGURE        *FrameBufferBltConfigure;
   UINTN                         FrameBufferBltConfigureSize;
+  GVT_GOP_INFO                  Info;
 } GVT_GOP_PRIVATE_DATA;
 
 extern GVT_GOP_PRIVATE_DATA *mPrivate;
 
 #define GVT_GOP_MAX_MODE 1
+#define INVALIDE_MODE_NUMBER  0xffff
 
 EFI_STATUS
 SetupGvtGop (

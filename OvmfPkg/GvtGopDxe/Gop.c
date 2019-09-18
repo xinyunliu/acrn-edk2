@@ -32,6 +32,14 @@ GvtGopQueryMode (
 {
   EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *ModeInfo;
 
+  if (!mPrivate) {
+    return EFI_NOT_STARTED;
+  }
+
+  if (ModeNumber >= GVT_GOP_MAX_MODE) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   ModeInfo = AllocateZeroPool (sizeof(*ModeInfo));
   if (ModeInfo == NULL) {
     return EFI_OUT_OF_RESOURCES;
@@ -56,8 +64,66 @@ GvtGopSetMode (
   IN  UINT32                       ModeNumber
   )
 {
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL Black;
+  EFI_STATUS                    Status;
+
   DEBUG ((EFI_D_INFO, "%a:%d index:%d\n", __FUNCTION__, __LINE__, ModeNumber));
-  return EFI_SUCCESS;
+
+  if (ModeNumber >= GVT_GOP_MAX_MODE) {
+    DEBUG ((EFI_D_WARN, "ModeNumber is out of range\n"));
+    return EFI_UNSUPPORTED;
+  }
+
+  if (!mPrivate) {
+    DEBUG ((EFI_D_WARN, "mPrivate is invalid\n"));
+    return EFI_NOT_STARTED;
+  }
+
+  //
+  // Re-initialize the frame buffer configure when mode changes.
+  //
+  Status = FrameBufferBltConfigure (
+             (VOID*) (UINTN) This->Mode->FrameBufferBase,
+             This->Mode->Info,
+             mPrivate->FrameBufferBltConfigure,
+             &mPrivate->FrameBufferBltConfigureSize
+             );
+  if (Status == RETURN_BUFFER_TOO_SMALL) {
+    //
+    // Frame buffer configure may be larger in new mode.
+    //
+
+    mPrivate->FrameBufferBltConfigure =
+      AllocatePool (mPrivate->FrameBufferBltConfigureSize);
+    ASSERT (mPrivate->FrameBufferBltConfigure != NULL);
+
+    //
+    // Create the configuration for FrameBufferBltLib
+    //
+    Status = FrameBufferBltConfigure (
+                (VOID*) (UINTN) This->Mode->FrameBufferBase,
+                This->Mode->Info,
+                mPrivate->FrameBufferBltConfigure,
+                &mPrivate->FrameBufferBltConfigureSize
+                );
+  }
+  ASSERT (Status == RETURN_SUCCESS);
+
+  //
+  // Per UEFI Spec, need to clear the visible portions of the output display to black.
+  //
+  ZeroMem (&Black, sizeof (Black));
+  Status = This->Blt (This,
+              &Black,
+              EfiBltVideoFill,
+              0, 0,
+              0, 0,
+              This->Mode->Info->HorizontalResolution,
+              This->Mode->Info->VerticalResolution,
+              0);
+  ASSERT_RETURN_ERROR (Status);
+
+  return Status;
 }
 
 EFI_STATUS
@@ -75,7 +141,44 @@ GvtGopBlt (
   IN  UINTN                                 Delta
   )
 {
-  EFI_STATUS                      Status = EFI_SUCCESS;
+  EFI_STATUS                      Status;
+  EFI_TPL                         OriginalTPL;
+
+  if (!mPrivate || !mPrivate->FrameBufferBltConfigure)
+    return EFI_NOT_STARTED;
+
+  //
+  // We have to raise to TPL Notify, so we make an atomic write the frame buffer.
+  // We would not want a timer based event (Cursor, ...) to come in while we are
+  // doing this operation.
+  //
+  OriginalTPL = gBS->RaiseTPL (TPL_NOTIFY);
+
+  switch (BltOperation) {
+  case EfiBltVideoToBltBuffer:
+  case EfiBltBufferToVideo:
+  case EfiBltVideoFill:
+  case EfiBltVideoToVideo:
+    Status = FrameBufferBlt (
+      mPrivate->FrameBufferBltConfigure,
+      BltBuffer,
+      BltOperation,
+      SourceX,
+      SourceY,
+      DestinationX,
+      DestinationY,
+      Width,
+      Height,
+      Delta
+      );
+    break;
+
+  default:
+    Status = EFI_INVALID_PARAMETER;
+    break;
+  }
+
+  gBS->RestoreTPL (OriginalTPL);
 
   return Status;
 }
@@ -168,5 +271,59 @@ UpdateGvtGop (
   IN GVT_GOP_PRIVATE_DATA  *Private
   )
 {
-  return EFI_SUCCESS;
+  EFI_STATUS            Status;
+  UINT32                Notify = VGT_G2V_GOP_SETUP;
+  GVT_GOP_INFO          GopInfo;
+
+  DEBUG ((EFI_D_VERBOSE, "%a:%d\n", __FUNCTION__, __LINE__));
+  Status = Private->PciIo->Mem.Write (
+        Private->PciIo,
+        EfiPciIoWidthUint32,
+        PCI_BAR_IDX0,
+        VGT_IF_BASE + VGT_G2V_OFFSET,
+        sizeof (Notify) / sizeof (UINT32),
+        &Notify
+        );
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
+
+  //Check GVT Gop settings
+  Status = Private->PciIo->Mem.Read (
+        Private->PciIo,
+        EfiPciIoWidthUint32,
+        PCI_BAR_IDX0,
+        VGT_IF_BASE + VGT_GOP_OFFSET,
+        sizeof (GopInfo) / sizeof (UINT32),
+        &GopInfo
+        );
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
+
+  if (GopInfo.FbBase == 0) {
+    DEBUG ((EFI_D_WARN, "Failed to get FbBase\n"));
+    Status = EFI_UNSUPPORTED;
+    goto Done;
+  }
+
+  DEBUG ((EFI_D_INFO, "w:%d h:%d p:%d b:%d s:%d base:%lx\n",
+        GopInfo.Width, GopInfo.Height, GopInfo.Pitch,
+        GopInfo.Bpp, GopInfo.Size, GopInfo.FbBase
+        ));
+
+  Private->Gop.Mode->FrameBufferBase = GopInfo.FbBase;
+  Private->Gop.Mode->FrameBufferSize = GopInfo.Size;
+
+  mModeList[0].HorizontalResolution = GopInfo.Width;
+  mModeList[0].VerticalResolution = GopInfo.Height;
+  mModeList[0].PixelsPerScanLine = GopInfo.Pitch;
+
+  CopyMem (&Private->Info, &GopInfo, sizeof (GVT_GOP_INFO));
+  CopyMem (Private->Gop.Mode->Info,
+          &mModeList[0],
+          sizeof (EFI_GRAPHICS_OUTPUT_MODE_INFORMATION));
+
+Done:
+  return Status;
 }
