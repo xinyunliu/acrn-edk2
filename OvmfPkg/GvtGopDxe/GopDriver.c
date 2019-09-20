@@ -207,6 +207,12 @@ GvtGopBindingStart (
     goto FreePrivate;
   }
 
+  // Notify kernel to set up display for Gop
+  Status = UpdateGvtGop (mPrivate);
+  if (EFI_ERROR (Status)) {
+    goto FreePrivate;
+  }
+
   // Install the gop protocol
   Status = gBS->InstallMultipleProtocolInterfaces (
                   &ControllerHandle,
@@ -217,12 +223,6 @@ GvtGopBindingStart (
 
   if (EFI_ERROR (Status)) {
     goto FreePrivate;
-  }
-
-  // Notify kernel to set up display for Gop
-  Status = UpdateGvtGop (mPrivate);
-  if (EFI_ERROR (Status)) {
-    goto FreeProtocol;
   }
 
   Status = mPrivate->Gop.SetMode (&mPrivate->Gop, 0);
