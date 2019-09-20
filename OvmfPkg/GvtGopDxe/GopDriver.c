@@ -207,7 +207,8 @@ GvtGopBindingStart (
     goto FreePrivate;
   }
 
-// Notify kernel to set up display for Gop
+
+  // Notify kernel to set up display for Gop
   Status = UpdateGvtGop (mPrivate);
   if (EFI_ERROR (Status)) {
     goto FreePrivate;
