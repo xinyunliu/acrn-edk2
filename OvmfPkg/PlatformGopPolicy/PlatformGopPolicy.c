@@ -23,8 +23,10 @@ Copyright (c)  1999  - 2014, Intel Corporation. All rights reserved
 
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
-#include <Library/PciLib.h>
-#include "IgdOpRegion.h"
+#include <Library/DxeServicesLib.h>
+
+#define VBT_ROM_FILE_GUID \
+{ 0x1647B4F3, 0x3E8A, 0x4FEF, { 0x81, 0xC8, 0x32, 0x8E, 0xD6, 0x47, 0xAB, 0x1A } }
 
 PLATFORM_GOP_POLICY_PROTOCOL  mPlatformGOPPolicy;
 
@@ -69,15 +71,17 @@ GetVbtData (
    OUT UINT32 *VbtSize
 )
 {
-  IGD_OPREGION_STRUCTURE   *OpRegion;
+  EFI_STATUS Status;
+  VOID *VbtTable;
+  UINTN size;
+  GUID vbt = VBT_ROM_FILE_GUID;
 
   DEBUG ((EFI_D_ERROR, "GetVbtData\n"));
-  OpRegion    = (IGD_OPREGION_STRUCTURE *)(UINTN)PciRead32 (PCI_LIB_ADDRESS (0, 2, 0, 0xFC));
-  if ((OpRegion != NULL) && \
-      (CompareMem (OpRegion->Header.SIGN, IGD_OPREGION_HEADER_SIGN, sizeof(OpRegion->Header.SIGN)) == 0)) {
-
-    *VbtAddress = (EFI_PHYSICAL_ADDRESS)OpRegion->MBox4.RVBT;
-    *VbtSize    = sizeof(OpRegion->MBox4.RVBT);
+  Status = GetSectionFromFv (&vbt, EFI_SECTION_RAW, 0, &VbtTable, &size);
+  if (!EFI_ERROR (Status)) {
+    DEBUG ((EFI_D_ERROR, "GetVbtTable success\n"));
+    *VbtAddress =(EFI_PHYSICAL_ADDRESS)(UINT8 *)VbtTable;
+    *VbtSize    = size;
     return EFI_SUCCESS;
   } else {
     return EFI_NOT_FOUND;

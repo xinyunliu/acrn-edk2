@@ -41,7 +41,7 @@
   DebugLib
   UefiDriverEntryPoint
   UefiRuntimeServicesTableLib
-  PciLib
+  DxeServicesLib
 
 [Protocols]
   gPlatformGOPPolicyGuid
